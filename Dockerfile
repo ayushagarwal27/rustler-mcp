@@ -22,4 +22,8 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)" || exit 1
 
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# --proxy-headers + --forwarded-allow-ips: trust Traefik's
+# X-Forwarded-Proto so redirects (e.g. the trailing-slash redirect on
+# /mcp) are emitted as https://, not http:// -- otherwise a client
+# behind TLS-terminating Traefik gets a downgrade redirect and fails.
+CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
