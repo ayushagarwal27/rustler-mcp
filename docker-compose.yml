@@ -1,0 +1,29 @@
+services:
+  rustler-mcp:
+    build: .
+    container_name: rustler-mcp
+    restart: unless-stopped
+    env_file:
+      - .env
+    networks:
+      - n8n_default
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.rustlermcp.rule=Host(`mcp.rustler.in`)"
+      - "traefik.http.routers.rustlermcp.entrypoints=web,websecure"
+      - "traefik.http.routers.rustlermcp.tls=true"
+      - "traefik.http.routers.rustlermcp.tls.certresolver=mytlschallenge"
+      - "traefik.http.services.rustlermcp.loadbalancer.server.port=8000"
+      - "traefik.http.routers.rustlermcp.middlewares=rustlermcp-headers@docker"
+      - "traefik.http.middlewares.rustlermcp-headers.headers.SSLRedirect=true"
+      - "traefik.http.middlewares.rustlermcp-headers.headers.SSLHost=mcp.rustler.in"
+      - "traefik.http.middlewares.rustlermcp-headers.headers.STSSeconds=315360000"
+      - "traefik.http.middlewares.rustlermcp-headers.headers.STSIncludeSubdomains=true"
+      - "traefik.http.middlewares.rustlermcp-headers.headers.STSPreload=true"
+      - "traefik.http.middlewares.rustlermcp-headers.headers.forceSTSHeader=true"
+      - "traefik.http.middlewares.rustlermcp-headers.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.rustlermcp-headers.headers.browserXSSFilter=true"
+
+networks:
+  n8n_default:
+    external: true
