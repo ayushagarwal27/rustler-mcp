@@ -4,47 +4,118 @@ An MCP server exposing Rustler's data (jobs, GitHub repos/trending, GitHub
 issues, events, newsletters) as tools, backed directly by the site's
 Postgres (Neon) database.
 
+## Things you can ask it
+
+Rustler MCP turns Rust job listings, trending/curated GitHub repos, open
+issues, meetups/events, and newsletter archives into things you can just
+ask for in plain English -- no need to browse the site or dig through
+filters.
+
+### Jobs
+
+- "Find senior remote Rust jobs in the US"
+- "Show me full details on job li:4471308700"
+
+### GitHub repos
+
+- "What are the top 5 AI category repos on Rustler?"
+- "What's trending in Rust right now?"
+- "Get me the full details on meilisearch/meilisearch in the AI category"
+
+### Issues
+
+- "What issues are open on rust-lang/rust?"
+- "Find good-first-issues across the top CLI tool repos"
+
+### Events
+
+- "Any Rust meetups happening in Stockholm?"
+- "Show me online-only Rust events coming up"
+
+### Newsletters
+
+- "What's in the latest Rustler newsletter?"
+- "List the last 3 newsletters sent"
+- "Get the full content of newsletter #23"
+
+### Mixing it up
+
+- "Give me a quick roundup: top trending Rust repo, one open remote Rust job, and any upcoming Rust events"
+
+Being specific (naming a repo, city, or id) gets you a faster, single-shot
+answer. Vague queries still work, but the assistant may need a couple of
+tool calls to narrow things down.
+
+## Connect to a client
+
+The hosted server lives at:
+
+```text
+https://mcp.rustler.in/mcp/
+```
+
+It only speaks Streamable HTTP, so point any MCP-compatible client at that
+URL -- no API key or local install required.
+
+### Claude (Desktop / web)
+
+1. Go to **Settings -> Connectors -> Add custom connector**.
+2. Paste `https://mcp.rustler.in/mcp/` as the URL and save.
+3. Rustler's tools will now show up as available tools in new chats.
+
+### Claude Code (CLI)
+
+```bash
+claude mcp add --transport http rustler https://mcp.rustler.in/mcp/
+```
+
+Then start a session and ask Claude Code anything from the list above.
+
+### ChatGPT
+
+1. Go to **Settings -> Connectors** and choose to add a custom connector
+   (this requires a plan/workspace with developer mode or custom connectors
+   enabled).
+2. Enter `https://mcp.rustler.in/mcp/` as the MCP server URL.
+3. Enable the connector in a chat to start using it.
+
+### Cursor
+
+Add to `~/.cursor/mcp.json` (or **Settings -> MCP -> New MCP Server**):
+
+```json
+{
+  "mcpServers": {
+    "rustler": {
+      "url": "https://mcp.rustler.in/mcp/"
+    }
+  }
+}
+```
+
+### VS Code (Copilot Chat, agent mode)
+
+Add to `.vscode/mcp.json` in your workspace (or run **MCP: Add Server**
+from the Command Palette and choose HTTP):
+
+```json
+{
+  "servers": {
+    "rustler": {
+      "type": "http",
+      "url": "https://mcp.rustler.in/mcp/"
+    }
+  }
+}
+```
+
+## Tech stack
+
 - **MCP layer:** [FastMCP](https://gofastmcp.com) (v2 API, tested against
   fastmcp 4.0.10)
 - **HTTP layer:** FastAPI, mounting FastMCP's streamable-HTTP ASGI app at `/mcp`
 - **DB layer:** SQLAlchemy 2.0 (async) + asyncpg, models mirror the existing
   production schema (read-only, no migrations owned by this service)
-
-## Setup
-
-```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env   # fill in DATABASE_URL (and ideally DATABASE_URL_RO)
-```
-
-Run locally:
-
-```bash
-uvicorn app.main:app --reload --port 8000
-```
-
-- Health check: `GET http://localhost:8000/health`
-- MCP endpoint (streamable HTTP): `POST http://localhost:8000/mcp`
-
-Point any MCP client (Claude, an MCP inspector, etc.) at that `/mcp` URL.
-This server only speaks Streamable HTTP -- there's no stdio entrypoint.
-
-## Use a read-only DB role (recommended)
-
-This server talks directly to your **production** database. Since every
-tool here is a `SELECT`, give it a role that can't do anything else:
-
-```sql
-CREATE ROLE rustler_mcp_ro WITH LOGIN PASSWORD 'choose-a-strong-password';
-GRANT CONNECT ON DATABASE neondb TO rustler_mcp_ro;
-GRANT USAGE ON SCHEMA public TO rustler_mcp_ro;
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO rustler_mcp_ro;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO rustler_mcp_ro;
-```
-
-Put that role's connection string in `DATABASE_URL_RO` in `.env`; the app
-prefers it automatically and falls back to `DATABASE_URL` if unset.
 
 ## Tools
 
@@ -62,22 +133,3 @@ prefers it automatically and falls back to `DATABASE_URL` if unset.
 | `list_newsletters`      | Past newsletter issues, most recent first                                                                         |
 | `get_newsletter`        | Full content of one newsletter issue by id                                                                        |
 | `get_latest_newsletter` | Most recently sent newsletter, in full                                                                            |
-
-## Open items / assumptions to double-check against real data
-
-- **`jobs.remote`** is a free-text column (not boolean) in the schema, so
-  `search_jobs(remote=...)` does an exact match. Query a few real rows to
-  see what values are actually stored (`"remote"`, `"hybrid"`, `"true"`,
-  etc.) and adjust if it needs to be case-insensitive or multi-value.
-- **`github_issues.issues`**, **`newsletters.articles/jobs/events`**, and
-  `jobs.requirements_enriched` / `nice_to_have_enriched` / `benefits` are
-  all opaque JSONB blobs whose _inner_ shape wasn't in the schema dump —
-  they're returned as-is (pass-through `Any`). If you want structured
-  filtering (e.g. "issues labeled good-first-issue", or unwrapping a
-  newsletter's article list into typed fields), share a sample row and the
-  corresponding tool/schema can be tightened.
-- **`subscribers`, `users`, `feedback`** tables are intentionally not
-  exposed — this server is read-only over the five resources you listed.
-- No auth is enforced on `/mcp`, per your call that all exposed data is
-  already public on the site. If that changes, add a dependency/middleware
-  check before `app.mount("/mcp", mcp_app)`.
